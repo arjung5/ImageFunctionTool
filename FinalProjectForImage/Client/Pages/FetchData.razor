@@ -1,0 +1,584 @@
+@page "/fetchdata"
+
+@using System.IO
+@using System.Net
+@using System.Drawing
+@using System.Net.Http
+@inject IJSRuntime JSRuntime
+@inject NavigationManager navigationManager
+@inject HttpClient _httpClient
+@inject HttpClient Http
+@using Newtonsoft.Json.Linq;
+@using BlazorInputFile
+@using FinalProjectForImage.Shared.Services
+@using FinalProjectForImage.Client.Models
+
+
+<div class="grid-x">
+    @if (phase1)
+    {
+        <div class="cell"><p>Please Enter the CMS Blob Storage Image Url</p></div>
+    }
+    <div class="cell small-12 medium-8">
+        @if (phase1)
+        {
+            <p>Please click the "choose file" button below and select a JPEG picture to be analyzed</p>
+            <br />
+            <InputFile id="image-picker" OnChange="HandlePhotoSelected" accept="image/*" />
+            <br />
+            <label for="fname">Enter Url:</label>
+            <input type="text" id="fname" name="fname" @bind-value="@_photoURL">
+            <div>
+                <spam class="button" type="button"
+                      @onclick="@(e => test(_photoURL))">
+                    Submit
+                </spam>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_photoURL))
+        {
+            <div id="outerContainer">
+                <div class="img-container" style="position:relative" id="container">
+
+                    <img style="display:@toDisplay" crossorigin="anonymous" id="cont" src="@_photoURL">
+                    @if (phase1)
+                    {
+                        <div id="item" style="position:absolute ; top:@top ; height:@heightOfBoundary ; width:@widthOfBoundary;border:solid 3px @color; background-color:rgba(255,255,255,0)">
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="cell large-offset-1 small-12 medium-3">
+        <div class="grid-x">
+            <div class="cell">
+                @if (phase1)
+                {
+                    <div class="grid-x ">
+                        @if (imageParameters.OriginalWidth != 0 && imageParameters.OriginalHeight != 0)
+                        {
+                            <div class="cell small-4"><h6>Width: @imageParameters.OriginalWidth</h6></div>
+                            <div class="cell large-offset-1 small-4"><h6>Height: @imageParameters.OriginalHeight</h6></div>
+                        }
+                        @if (imageParameters.Width != 0 && imageParameters.Height != 0 && toShowCropImageButton)
+                        {
+                            <div class="cell small-4"><h6>Crop Width: @imageParameters.Width</h6></div>
+                            <div class="cell large-offset-1 small-4"><h6>Crop Height: @imageParameters.Height</h6></div>
+                        }
+                    </div>
+                    <div class="cell">
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" id="dataX" placeholder="X Coordinate">
+                        </div>
+                    </div>
+                    <div class="cell">
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" id="dataY" placeholder="Y Coordinate">
+                        </div>
+                    </div>
+                }
+                <div class="cell">
+                    <EditForm Model="@imageParameters" OnSubmit="@OnValidSubmit">
+                        <div class="grid-x">
+                            @if (phase2)
+                            {
+                                <div class="cell">
+                                    <label for="width">Preview Width</label>
+                                    <InputNumber id="width" placeholder="Width" @bind-Value="imageParameters.Width" />
+                                </div>
+                                <div class="cell">
+                                    <label for="height">Preview Height</label>
+                                    <InputNumber id="height" placeholder="Height" @bind-Value="@imageParameters.Height" />
+                                </div>
+                            }
+                            @if (phase1)
+                            {
+                                <div class="cell">
+                                    <label for="ratio">Aspect Ratio</label>
+                                    <InputText id="ratio" placeholder="Ratio" @bind-Value="@imageParameters.Ratio" />
+                                </div>
+                            }
+                            <div class="cell m-t-10">
+                                <button type="submit" class="button">
+                                    Preview
+                                </button>
+                            </div>
+                        </div>
+                    </EditForm>
+                </div>
+                <div class="cell m-t-10">
+                    <spam class="button  expand" type="button"
+                          @onclick="@reset">
+                        Reset
+                    </spam>
+                </div>
+                @if (phase2)
+                {
+                    @*<div class="cell m-t-10">
+                            <spam class="button  expand" type="button"
+                                  @onclick="@SaveImage">
+                                Prepare Download
+                            </spam>
+                        </div>*@
+
+                    <div class="cell">
+                        <a id="downloadLnk" download="">Save Image</a>
+                    </div>
+
+                }
+                @if (phase1)
+                {
+                    @if (toShowCropImageButton)
+                    {
+                        <div class="cell m-t-10">
+                            <spam class="button  expand" type="button"
+                                  @onclick="@cropImage">
+                                Crop Image
+                            </spam>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(_photoURL)  && submitButtonPressed)
+                    {
+                        <div class="cell m-t-10">
+                            <spam class="button  expand" type="button"
+                                  @onclick="@ExportImage">
+                                Export Image
+                            </spam>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+    @if (phase1)
+    {
+        <div class="cell m-t-10" small-12>
+            <canvas id='canvas' style=' width:@canvasWidth ; height:@canvasHeight;'>
+                Sorry, your browser does not support the canvas tag.
+            </canvas>
+        </div>
+        <div class="cell m-t-10" small-12>
+            <img id="outputImage1" crossorigin="anonymous" src="">
+        </div>
+    }
+    @if (phase2)
+    {
+        <div class="cell m-t-10" small-12>
+            <img id="output" crossorigin="anonymous" src="">
+        </div>
+
+        <div class="cell m-t-10" style="display:none" small-12>
+            <canvas id='canvas2'>
+                Sorry, your browser does not support the canvas tag.
+            </canvas>
+        </div>
+    }
+
+    <span id="get" style="width:@imageParameters.percentWidth; height:@imageParameters.percentHeight"></span>
+
+
+</div>
+
+
+
+@code
+{
+    public ImageParameters imageParameters { get; set; }
+
+    public string toDisplay { get; set; }
+    public bool submitButtonPressed { get; set; }
+
+    public bool phase1 { get; set; }
+    public bool phase2 { get; set; }
+
+    public bool toShowCropImageButton { get; set; }
+
+
+    public string canvasWidth { get; set; }
+    public string canvasHeight { get; set; }
+
+    public string color { get; set; }
+
+    public int height { get; set; }
+    public int width { get; set; }
+    public int numerator { get; set; }
+    public int denomenator { get; set; }
+
+    public int data { get; set; }
+
+    public static string _photoURL { get; set; }
+    public System.Int32 top { get; set; }
+    public System.Int32 left { get; set; }
+
+
+    public string widthOfBoundary { get; set; }
+    public string heightOfBoundary { get; set; }
+
+    public bool toSaveImage { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        phase1 = true;
+        phase2 = false;
+
+        toShowCropImageButton = false;
+
+        imageParameters = new ImageParameters();
+
+        color = "transparent";
+
+        top = 0;
+        left = 0;
+        toDisplay = "none";
+
+        submitButtonPressed = false;
+
+        toSaveImage = false;
+    }
+    public async Task test(string value)
+    {
+        if (!string.IsNullOrEmpty(_photoURL))
+        {
+            submitButtonPressed = true;
+            toDisplay = "visible";
+
+            var response = await JSRuntime.InvokeAsync<string>("Getting.width");
+            string[] array1 = new string[] { "" };
+            array1 = response.Split(':');
+
+            imageParameters.OriginalWidth = Int16.Parse(array1[1]);
+            imageParameters.OriginalHeight = Int16.Parse(array1[2]);
+            imageParameters.Width = imageParameters.OriginalWidth;
+            imageParameters.Height = imageParameters.OriginalHeight;
+            imageParameters.previousHeight = imageParameters.OriginalHeight;
+            imageParameters.previousWidth = imageParameters.OriginalWidth;
+            if (string.IsNullOrEmpty(imageParameters.finalImageName))
+            {
+                string[] imageName = new string[] { "" };
+                imageName = _photoURL.Split('/');
+                imageParameters.finalImageName = imageName[imageName.Length - 1];
+            }
+        }
+        else
+        {
+            await JSRuntime.InvokeVoidAsync("Raise.alert", "Please Enter Some Url or Select Image First!");
+        }
+    }
+    public async Task OnValidSubmit()
+    {
+        if (phase1)
+        {
+            if (string.IsNullOrEmpty(_photoURL) || !submitButtonPressed)
+            {
+                if(string.IsNullOrEmpty(_photoURL))
+                {
+                    await JSRuntime.InvokeVoidAsync("Raise.alert", "Please Enter Image Url or Select Image First!");
+                    imageParameters.Ratio = imageParameters.previousRatio;
+                }
+                else
+                {
+                    await JSRuntime.InvokeVoidAsync("Raise.alert", "Please Press Submit Button to Display Image First!");
+                    imageParameters.Ratio = imageParameters.previousRatio;
+                }
+
+            }
+            else
+            {
+                if (string.IsNullOrEmpty(imageParameters.Ratio))
+                {
+                    await JSRuntime.InvokeVoidAsync("Raise.alert", "Please Enter Some Value in Aspect Ratio !");
+                }
+                else if (imageParameters.previousRatio != imageParameters.Ratio)
+                {
+                    await JSRuntime.InvokeVoidAsync("Clear.canImage");
+
+                    @if (!string.IsNullOrEmpty(_photoURL) && string.IsNullOrEmpty(widthOfBoundary) && string.IsNullOrEmpty(heightOfBoundary))
+                    {
+                        if (string.IsNullOrEmpty(imageParameters.finalImageName))
+                        {
+                            string[] imageName = new string[] { "" };
+                            imageName = _photoURL.Split('/');
+                            imageParameters.finalImageName = imageName[imageName.Length - 1];
+                        }
+
+                        color = "red";
+                        var response = await JSRuntime.InvokeAsync<string>("Getting.width");
+                        string[] array1 = new string[] { "" };
+                        array1 = response.Split(':');
+
+                        imageParameters.OriginalWidth = Int16.Parse(array1[1]);
+                        imageParameters.OriginalHeight = Int16.Parse(array1[2]);
+                        if (array1[0] != "small")
+                        {
+                            imageParameters.widthToDisplay = Int16.Parse(array1[3]);
+                        }
+                        imageParameters.heightToDisplay = Int16.Parse(array1[4]);
+
+                        imageParameters.Height = imageParameters.OriginalHeight;
+                        imageParameters.Width = imageParameters.OriginalWidth;
+
+                        imageParameters.previousHeight = imageParameters.Height;
+                        imageParameters.previousWidth = imageParameters.Width;
+
+                        if (array1[0] == "small")
+                        {
+                            widthOfBoundary = array1[3] + "%";
+                            var ans3 = widthOfBoundary.Replace("%", string.Empty);
+
+                            var currentvalue = Convert.ToDouble(ans3);
+                            currentvalue = Math.Round(currentvalue);
+                            imageParameters.percentWidth = currentvalue.ToString() + "%";
+                        }
+                        else
+                        {
+                            imageParameters.percentWidth = "100%";
+                            widthOfBoundary = "100%";
+
+                        }
+                        if (imageParameters.heightToDisplay <= imageParameters.Height)
+                        {
+                            imageParameters.percentHeight = "100%";
+                            heightOfBoundary = "100%";
+                        }
+                        else
+                        {
+                            double Height = (imageParameters.heightToDisplay - imageParameters.Height) / imageParameters.heightToDisplay;
+                            Height = Height * 100;
+                            Height = 100 - Height;
+                            heightOfBoundary = Height + "%";
+                            imageParameters.percentHeight = Height + "%";
+                        }
+
+                        await JSRuntime.InvokeVoidAsync("Crop.image");
+                    }
+                    await JSRuntime.InvokeVoidAsync("Crop.image");
+                    toShowCropImageButton = true;
+                    width = imageParameters.OriginalWidth;
+                    height = imageParameters.OriginalHeight;
+
+                    string[] array = new string[] { "" };
+                    array = imageParameters.Ratio.Split(':');
+                    numerator = Int16.Parse(array[0]);
+                    denomenator = Int16.Parse(array[1]);
+
+                    if (numerator > denomenator)
+                    {
+                        height = width * denomenator;
+                        height = height / numerator;
+
+                        if (height > imageParameters.OriginalHeight)
+                        {
+                            height = imageParameters.OriginalHeight;
+                            width = height * numerator;
+                            width = width / denomenator;
+                        }
+                    }
+                    else if (denomenator > numerator)
+                    {
+                        width = height * numerator;
+                        width = width / denomenator;
+
+                        if (width > imageParameters.OriginalWidth)
+                        {
+                            width = imageParameters.OriginalWidth;
+                            height = width * denomenator;
+                            height = height / numerator;
+                        }
+                    }
+                    else if (denomenator == numerator)
+                    {
+                        if (imageParameters.OriginalWidth > imageParameters.OriginalHeight)
+                        {
+                            width = height * numerator;
+                            width = width / denomenator;
+
+                            if (width > imageParameters.OriginalWidth)
+                            {
+                                width = imageParameters.OriginalWidth;
+                                height = width * denomenator;
+                                height = height / numerator;
+                            }
+                        }
+                        else
+                        {
+                            height = width * denomenator;
+                            height = height / numerator;
+
+                            if (height > imageParameters.OriginalHeight)
+                            {
+                                height = imageParameters.OriginalHeight;
+                                width = height * numerator;
+                                width = width / denomenator;
+                            }
+                        }
+                    }
+
+                    //double calculateWidth = width * 100;
+                    //calculateWidth = calculateWidth / imageParameters.OriginalWidth;
+
+                    //widthOfBoundary = calculateWidth.ToString() + "%";
+
+                    //double calculateHeight = height * 100;
+                    //calculateHeight = calculateHeight / imageParameters.OriginalHeight;
+
+                    //heightOfBoundary = calculateHeight.ToString() + "%";
+
+                    //var ans = widthOfBoundary.Remove("%");
+
+                    var ans1 = imageParameters.percentWidth.Replace("%", string.Empty);
+
+                    var currentValue1 = Convert.ToDouble(ans1);
+
+                    //currentValue1 = Math.Round(currentValue1);
+
+                    var calculateWidth = currentValue1 * width;
+                    calculateWidth = calculateWidth / imageParameters.OriginalWidth;
+
+                    widthOfBoundary = calculateWidth.ToString() + "%";
+
+                    //var calculateWidth = (imageParameters.widthToDisplay*width)/ imageParameters.OriginalWidth;
+                    //widthOfBoundary = calculateWidth.ToString() + "px";
+
+                    //var calculateHeight = (imageParameters.heightToDisplay * height) / imageParameters.OriginalHeight;
+                    //heightOfBoundary = calculateHeight.ToString() + "px";
+
+                    var ans2 = imageParameters.percentHeight.Replace("%", string.Empty);
+
+                    var currentValue2 = Convert.ToDouble(ans2);
+                    //currentValue2 = Math.Round(currentValue2);
+                    var calculateHeight = currentValue2 * height;
+                    calculateHeight = calculateHeight / imageParameters.OriginalHeight;
+
+                    heightOfBoundary = calculateHeight.ToString() + "%";
+
+                    imageParameters.Width = width;
+                    imageParameters.Height = height;
+                    imageParameters.previousRatio = imageParameters.Ratio;
+                    imageParameters.previousWidth = imageParameters.Width;
+                    imageParameters.previousHeight = imageParameters.Height;
+                    canvasWidth = imageParameters.Width.ToString() + "px";
+                    canvasHeight = imageParameters.Height.ToString() + "px";
+                }
+            }
+        }
+        if (phase2)
+        {
+            if (imageParameters.Width > imageParameters.OriginalWidth || imageParameters.Height > imageParameters.OriginalHeight)
+            {
+                if (imageParameters.Width > imageParameters.OriginalWidth && imageParameters.Height > imageParameters.OriginalHeight)
+                {
+                    await JSRuntime.InvokeVoidAsync("Raise.alert", "Please Enter Width & Height Less Than : " + imageParameters.OriginalWidth + " , " + imageParameters.OriginalHeight);
+                    imageParameters.Width = imageParameters.previousWidth;
+                    imageParameters.Height = imageParameters.previousHeight;
+                }
+                else if (imageParameters.Width > imageParameters.OriginalWidth)
+                {
+                    await JSRuntime.InvokeVoidAsync("Raise.alert", "Please Enter Width Less Than : " + imageParameters.OriginalWidth);
+                    imageParameters.Width = imageParameters.previousWidth;
+                }
+                else if (imageParameters.Height > imageParameters.OriginalHeight)
+                {
+                    await JSRuntime.InvokeVoidAsync("Raise.alert", "Please Enter Height Less Than : " + imageParameters.OriginalHeight);
+                    imageParameters.Height = imageParameters.previousHeight;
+                }
+            }
+            else if (imageParameters.previousWidth != imageParameters.Width && imageParameters.previousHeight != imageParameters.Height)
+            {
+                await JSRuntime.InvokeVoidAsync("Raise.alert", "Enter Height Or Width At Once");
+                imageParameters.Width = imageParameters.previousWidth;
+                imageParameters.Height = imageParameters.previousHeight;
+            }
+            else if (imageParameters.previousWidth != imageParameters.Width)
+            {
+                var name = imageParameters.finalImageName;
+                var response = await JSRuntime.InvokeAsync<object>("Can.toImage", "width:" + imageParameters.Width.ToString(), name);
+
+                var value = response.ToString();
+
+                imageParameters.Height = Int16.Parse(value);
+                imageParameters.previousHeight = imageParameters.Height;
+                imageParameters.previousWidth = imageParameters.Width;
+            }
+            else if (imageParameters.previousHeight != imageParameters.Height)
+            {
+                imageParameters.Ratio = imageParameters.Height.ToString();
+                var name = imageParameters.finalImageName;
+                var response = await JSRuntime.InvokeAsync<object>("Can.toImage", "height:" + imageParameters.Height.ToString(), name);
+
+                var value = response.ToString();
+
+                imageParameters.Width = Int16.Parse(value);
+                imageParameters.previousWidth = imageParameters.Width;
+                imageParameters.previousHeight = imageParameters.Height;
+
+            }
+        }
+    }
+
+    public async Task reset()
+    {
+        if (phase1)
+        {
+            await JSRuntime.InvokeVoidAsync("Clear.canImage");
+        }
+        phase1 = true;
+        phase2 = false;
+        imageParameters = new ImageParameters();
+        toShowCropImageButton = false;
+        widthOfBoundary = "100%";
+        heightOfBoundary = "100%";
+        _photoURL = null;
+        widthOfBoundary = null;
+        heightOfBoundary = null;
+
+        canvasHeight = "0";
+        canvasHeight = "0";
+        toDisplay = "none";
+        toSaveImage = false;
+        color = "transparent";
+    }
+
+    public async Task cropImage()
+    {
+        await JSRuntime.InvokeVoidAsync("GetCanvas.finalCanvas", imageParameters.Width.ToString(), imageParameters.Height.ToString());
+    }
+    public async Task ExportImage()
+    {
+        var urlValue = await JSRuntime.InvokeAsync<object>("ImageUrl.modified");
+        if (urlValue is null)
+        {
+
+        }
+        else
+        {
+            _photoURL = urlValue.ToString();
+        }
+        phase1 = false;
+        phase2 = true;
+    }
+    public async Task SaveImage()
+    {
+        var value = imageParameters.finalImageName;
+        await JSRuntime.InvokeVoidAsync("Save.canva", imageParameters.finalImageName);
+
+    }
+    private async Task HandlePhotoSelected(IFileListEntry[] files)
+    {
+        imageParameters.finalImageName = files[0].Name;
+
+        var sourceFile = files.FirstOrDefault();
+        if (sourceFile != null)
+        {
+            var imageFile = await sourceFile.ToImageFileAsync("image/jpeg", 800, 600);
+
+            MemoryStream bytes = await imageFile.ReadAllAsync();
+            _photoURL = bytes.ToDataUrl("image/jpeg");
+            
+            StateHasChanged();
+
+        }
+    }
+}
